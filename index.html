@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video Evaluation Study</title>
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<div class="container">
+
+  <section id="view-error" hidden>
+    <h1>접속 오류 / Access Error</h1>
+    <p class="error" id="error-message"></p>
+  </section>
+
+  <section id="view-intro" hidden>
+    <h1>비디오 평가 연구 참여 안내</h1>
+    <p>
+      비디오 생성 결과의 시간적 자연스러움과 기준 영상과의 시각적 일치도를 평가하기 위한 연구입니다.
+      각 문항에서는 하나의 기준 영상(Reference)과 두 개의 익명화된 생성 결과(Video A/B)가 제공됩니다.
+      Video A와 Video B 중 질문에 더 적합한 영상을 선택해주세요. 차이를 판단하기 어려운 경우
+      "차이가 명확하지 않음"을 선택할 수 있습니다.
+    </p>
+    <p class="en">
+      This study evaluates the temporal naturalness of generated videos and their visual consistency
+      with a reference video. In each question, you will see one reference video and two anonymized
+      generated results (Video A / Video B). Please choose the video that better answers the question,
+      or select "No clear difference" if you cannot tell.
+    </p>
+    <ul class="meta-info">
+      <li>총 12개 trial을 평가합니다. (약 10~15분 소요 예상)</li>
+      <li><strong>시작 후에는 이 안내 페이지로 돌아올 수 없습니다.</strong> 배정받은 Participant ID를 정확히 입력해주세요.</li>
+      <li>모든 평가가 끝나면 응답 CSV 파일을 다운로드하게 됩니다 — 반드시 연구자에게 보내주세요.</li>
+    </ul>
+
+    <div class="pid-form">
+      <label for="pid-input">Participant ID (예: P001)</label>
+      <input type="text" id="pid-input" placeholder="P001" autocomplete="off">
+      <button id="btn-start" class="btn primary" type="button">시작하기 / Start</button>
+      <p id="pid-error" class="error" hidden></p>
+    </div>
+  </section>
+
+  <section id="view-study" hidden>
+    <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+    <div id="progress-text" class="progress-text"></div>
+    <div class="save-progress-row">
+      <button id="btn-save-progress" class="save-progress-btn" type="button">지금까지 응답 저장(다운로드) / Save progress so far</button>
+    </div>
+
+    <div id="loading-msg" class="loading-msg">영상을 불러오는 중입니다... / Loading videos...</div>
+
+    <div id="trial-area" hidden>
+      <div id="ref-block" hidden>
+        <h2 class="ref-label">Reference (GT)</h2>
+        <div class="ref-row">
+          <video id="video-ref" muted playsinline></video>
+        </div>
+      </div>
+
+      <div class="ab-row">
+        <div class="video-block">
+          <h3>Video A</h3>
+          <video id="video-a" muted playsinline></video>
+        </div>
+        <div class="video-block">
+          <h3>Video B</h3>
+          <video id="video-b" muted playsinline></video>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="btn-play" type="button" disabled>Play / Pause</button>
+        <button id="btn-replay" type="button" disabled>Replay</button>
+      </div>
+
+      <p id="phase-hint" class="phase-hint"></p>
+
+      <div class="questions">
+        <fieldset id="q1-fieldset" disabled>
+          <legend>
+            Q1. Which video shows more natural and temporally consistent motion?<br>
+            어느 영상이 더 자연스럽고 시간적으로 일관된 움직임을 보여주나요?
+          </legend>
+          <label><input type="radio" name="q1" value="A"> Video A</label>
+          <label><input type="radio" name="q1" value="B"> Video B</label>
+          <label><input type="radio" name="q1" value="tie"> No clear difference / 차이가 명확하지 않음</label>
+        </fieldset>
+
+        <fieldset id="q2-fieldset" disabled hidden>
+          <legend>
+            Q2. Which video better matches the reference in scene structure and appearance,
+            with fewer visible artifacts or hallucinations?<br>
+            어느 영상이 장면 구조와 외관 측면에서 기준 영상(GT)에 더 잘 부합하며, 눈에 띄는 아티팩트나
+            비현실적으로 생성된 요소(hallucination)가 더 적나요?
+          </legend>
+          <label><input type="radio" name="q2" value="A"> Video A</label>
+          <label><input type="radio" name="q2" value="B"> Video B</label>
+          <label><input type="radio" name="q2" value="tie"> No clear difference / 차이가 명확하지 않음</label>
+        </fieldset>
+      </div>
+
+      <button id="btn-next" type="button" disabled>Next</button>
+    </div>
+  </section>
+
+  <section id="view-complete" hidden>
+    <div class="complete">
+      <h1>평가가 완료되었습니다</h1>
+      <p>참여해주셔서 감사합니다.</p>
+      <p class="en">Thank you. Your responses have been successfully submitted.</p>
+      <p class="meta-info" id="complete-pid"></p>
+      <button id="btn-download-final" class="btn primary" type="button">응답 CSV 다운로드 / Download responses CSV</button>
+      <p class="meta-info">다운로드된 CSV 파일을 연구자에게 보내주세요.<br>Please send the downloaded CSV file to the researcher.</p>
+    </div>
+  </section>
+
+</div>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
