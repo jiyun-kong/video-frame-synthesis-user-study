@@ -2,6 +2,7 @@
   "use strict";
 
   var DATA_URL = "data/assignments_public.json";
+  var PLAYBACK_RATE = 0.85; // 전체 영상 재생속도를 살짝 느리게 (조절하려면 이 값만 변경)
 
   var views = ["error", "intro", "study", "complete"];
   function showView(name) {
@@ -25,7 +26,6 @@
     play: document.getElementById("btn-play"),
     replay: document.getElementById("btn-replay"),
     next: document.getElementById("btn-next"),
-    phaseHint: document.getElementById("phase-hint"),
     q1: document.getElementById("q1-fieldset"),
     q2: document.getElementById("q2-fieldset"),
     progressFill: document.getElementById("progress-fill"),
@@ -33,28 +33,20 @@
     saveProgressBtn: document.getElementById("btn-save-progress"),
   };
 
-  var HINTS = {
-    phase1_gt: "먼저 기준 영상(GT) 없이 Video A/B만 비교합니다. Q1 응답 후 기준 영상이 공개됩니다.\n" +
-      "Comparing Video A/B without the reference first; the reference will be revealed after Q1.",
-    phase1_nogt: "이 항목은 기준 영상(GT)이 제공되지 않아 Q1만 진행합니다.\n" +
-      "No reference video is available for this item, so only Q1 is asked.",
-    phase2: "이제 기준 영상(GT)과 비교합니다.\nNow comparing against the reference (GT).",
-  };
-
   var allVideos = [els.ref, els.a, els.b];
 
   var studyData = null;
   var participantId = null;
   var trials = [];       // this participant's trials, ordered by trial_order
-  var responses = {};    // token -> {q1_choice, q2_choice, timestamp}
+  var responses = {};    // token -> {q1_choice, q1_timestamp, q2_choice, q2_timestamp}
   var currentTrial = null;
-  var phase = 1;
+  var round = 1;          // 1 = Q1 라운드 (GT 비공개, 12개 전부), 2 = Q2 라운드 (GT 있는 trial만)
   var syncTimer = null;
   var playing = false;
 
   // ---------- storage ----------
 
-  function storageKey(pid) { return "evfra_study_v1_" + pid; }
+  function storageKey(pid) { return "evfra_study_v2_" + pid; }
 
   function loadLocal(pid) {
     try {
@@ -82,11 +74,15 @@
   }
 
   function buildCsv() {
-    var rows = [["participant_id", "trial_id", "trial_order", "q1_choice", "q2_choice", "timestamp"]];
+    var rows = [["participant_id", "trial_id", "trial_order", "q1_choice", "q1_timestamp", "q2_choice", "q2_timestamp"]];
     trials.forEach(function (t) {
       var r = responses[t.token];
       if (!r) return;
-      rows.push([participantId, t.token, String(t.trial_order), r.q1_choice, r.q2_choice, r.timestamp]);
+      rows.push([
+        participantId, t.token, String(t.trial_order),
+        r.q1_choice || "", r.q1_timestamp || "",
+        r.q2_choice || "", r.q2_timestamp || "",
+      ]);
     });
     return rows.map(function (row) { return row.map(csvEscape).join(","); }).join("\n") + "\n";
   }
@@ -104,13 +100,15 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
 
-  // ---------- phase / video engine (동일 sequence를 두 단계로 나눠 GT 노출 제어) ----------
+  // ---------- video engine ----------
+  // round 1: Video A/B만 (Reference 없음). round 2: GT 있는 trial만 Reference+A+B.
 
   function activeVideos() {
-    if (phase === 2 && currentTrial && currentTrial.has_gt) {
-      return [els.ref, els.a, els.b];
-    }
-    return [els.a, els.b];
+    return round === 2 ? [els.ref, els.a, els.b] : [els.a, els.b];
+  }
+
+  function applyPlaybackRate() {
+    allVideos.forEach(function (v) { v.playbackRate = PLAYBACK_RATE; });
   }
 
   function setLoadingState(isLoading) {
@@ -119,7 +117,7 @@
   }
 
   function updateNextState() {
-    if (phase === 1) {
+    if (round === 1) {
       var q1 = document.querySelector('input[name="q1"]:checked');
       els.next.disabled = !q1;
     } else {
@@ -131,40 +129,40 @@
   function setControlsEnabled(enabled) {
     els.play.disabled = !enabled;
     els.replay.disabled = !enabled;
-    els.q1.disabled = !enabled;
+    if (round === 1) {
+      els.q1.disabled = !enabled;
+    } else {
+      els.q2.disabled = !enabled;
+    }
   }
 
   function updateProgress() {
-    var completed = Object.keys(responses).length;
-    var total = trials.length;
-    var pct = total ? Math.round((completed / total) * 100) : 0;
+    var gtTrials = trials.filter(function (t) { return t.has_gt; });
+    var q1Done = trials.filter(function (t) { return responses[t.token] && responses[t.token].q1_choice; }).length;
+    var q2Done = gtTrials.filter(function (t) { return responses[t.token] && responses[t.token].q2_choice; }).length;
+    var totalSteps = trials.length + gtTrials.length;
+    var doneSteps = q1Done + q2Done;
+    var pct = totalSteps ? Math.round((doneSteps / totalSteps) * 100) : 0;
     els.progressFill.style.width = pct + "%";
-    els.progressText.textContent = completed + " / " + total + " completed";
+    els.progressText.textContent = round === 1
+      ? "Q1 (" + q1Done + " / " + trials.length + ")"
+      : "Q2 (" + q2Done + " / " + gtTrials.length + ")";
   }
 
-  function enterPhase1() {
-    phase = 1;
-    els.refBlock.hidden = true;
-    document.querySelectorAll('input[name="q1"]').forEach(function (r) { r.checked = false; });
-    els.q2.hidden = true;
-    els.q2.disabled = true;
-    document.querySelectorAll('input[name="q2"]').forEach(function (r) { r.checked = false; });
-    els.phaseHint.textContent = currentTrial && currentTrial.has_gt ? HINTS.phase1_gt : HINTS.phase1_nogt;
-    updateNextState();
-  }
-
-  function enterPhase2() {
-    phase = 2;
-    els.q1.disabled = true; // GT 공개 후 Q1 응답 변경 불가 (bias 방지)
-    els.refBlock.hidden = false;
-    els.ref.currentTime = els.a.currentTime;
-    if (playing) {
-      els.ref.play();
+  function setupRoundView() {
+    if (round === 1) {
+      els.refBlock.hidden = true;
+      els.q1.hidden = false;
+      els.q2.hidden = true;
+    } else {
+      els.refBlock.hidden = false;
+      els.q1.hidden = true;
+      els.q2.hidden = false;
     }
-    els.q2.hidden = false;
-    els.q2.disabled = false;
-    els.phaseHint.textContent = HINTS.phase2;
+    document.querySelectorAll('input[name="q1"]').forEach(function (r) { r.checked = false; });
+    document.querySelectorAll('input[name="q2"]').forEach(function (r) { r.checked = false; });
     updateNextState();
+    updateProgress();
   }
 
   function loadTrial(trial) {
@@ -173,15 +171,16 @@
     setControlsEnabled(false);
     stopSync();
     playing = false;
-    enterPhase1();
+    setupRoundView();
 
-    var needsRef = !!trial.media.ref;
+    var needsRef = round === 2; // round 2는 항상 has_gt=true trial만 방문
     var needed = needsRef ? 3 : 2;
     var readyCount = 0;
 
     function onReady() {
       readyCount += 1;
       if (readyCount >= needed) {
+        applyPlaybackRate();
         setLoadingState(false);
         setControlsEnabled(true);
       }
@@ -215,10 +214,8 @@
       if (Math.abs(els.b.currentTime - master) > 0.15) {
         els.b.currentTime = master;
       }
-      if (phase === 2 && currentTrial && currentTrial.has_gt) {
-        if (Math.abs(els.ref.currentTime - master) > 0.15) {
-          els.ref.currentTime = master;
-        }
+      if (round === 2 && Math.abs(els.ref.currentTime - master) > 0.15) {
+        els.ref.currentTime = master;
       }
     }, 500);
   }
@@ -238,6 +235,7 @@
       stopSync();
       playing = false;
     } else {
+      applyPlaybackRate();
       activeVideos().forEach(function (v) { v.play(); });
       startSync();
       playing = true;
@@ -246,6 +244,7 @@
 
   els.replay.addEventListener("click", function () {
     activeVideos().forEach(function (v) { v.currentTime = 0; });
+    applyPlaybackRate();
     activeVideos().forEach(function (v) { v.play(); });
     startSync();
     playing = true;
@@ -255,40 +254,39 @@
     r.addEventListener("change", updateNextState);
   });
 
-  function recordResponse(q1Value, q2Value) {
+  function recordAnswer() {
     els.next.disabled = true;
     allVideos.forEach(function (v) { v.pause(); });
     stopSync();
     playing = false;
 
-    responses[currentTrial.token] = {
-      q1_choice: q1Value,
-      q2_choice: q2Value,
-      timestamp: new Date().toISOString(),
-    };
+    var now = new Date().toISOString();
+    var existing = responses[currentTrial.token] || {};
+
+    if (round === 1) {
+      existing.q1_choice = document.querySelector('input[name="q1"]:checked').value;
+      existing.q1_timestamp = now;
+      if (!currentTrial.has_gt) {
+        // GT가 없는 sequence는 2라운드(Q2)에 다시 나오지 않으므로 여기서 바로 확정한다.
+        existing.q2_choice = "na";
+        existing.q2_timestamp = now;
+      }
+    } else {
+      existing.q2_choice = document.querySelector('input[name="q2"]:checked').value;
+      existing.q2_timestamp = now;
+    }
+
+    responses[currentTrial.token] = existing;
     saveLocal(participantId);
     updateProgress();
-    loadNextTrial();
+    advance();
   }
 
   els.next.addEventListener("click", function () {
     if (!currentTrial) return;
-
-    if (phase === 1) {
-      var q1 = document.querySelector('input[name="q1"]:checked');
-      if (!q1) return;
-      if (currentTrial.has_gt) {
-        enterPhase2();
-      } else {
-        recordResponse(q1.value, "na");
-      }
-      return;
-    }
-
-    var q1Final = document.querySelector('input[name="q1"]:checked');
-    var q2 = document.querySelector('input[name="q2"]:checked');
-    if (!q1Final || !q2) return;
-    recordResponse(q1Final.value, q2.value);
+    if (round === 1 && !document.querySelector('input[name="q1"]:checked')) return;
+    if (round === 2 && !document.querySelector('input[name="q2"]:checked')) return;
+    recordAnswer();
   });
 
   els.saveProgressBtn.addEventListener("click", function () {
@@ -296,14 +294,34 @@
   });
 
   // ---------- flow control ----------
+  // 1부: 12개 trial 전체를 Q1(레퍼런스 비공개)로 먼저 순회한다.
+  // 2부: GT가 있는 trial만 다시 순회하며 Q2(레퍼런스 공개)를 묻는다.
+  // Q1 응답은 1부에서 이미 확정되어 2부 화면에는 아예 나타나지 않는다(수정 불가).
 
-  function loadNextTrial() {
-    var next = trials.find(function (t) { return !responses[t.token]; });
-    if (!next) {
-      finishStudy();
-      return;
+  function nextRound1Trial() {
+    return trials.find(function (t) {
+      var r = responses[t.token];
+      return !r || !r.q1_choice;
+    });
+  }
+
+  function nextRound2Trial() {
+    return trials.find(function (t) {
+      if (!t.has_gt) return false;
+      var r = responses[t.token];
+      return !r || !r.q2_choice;
+    });
+  }
+
+  function advance() {
+    if (round === 1) {
+      var next = nextRound1Trial();
+      if (next) { loadTrial(next); return; }
+      round = 2;
     }
-    loadTrial(next);
+    var next2 = nextRound2Trial();
+    if (next2) { loadTrial(next2); return; }
+    finishStudy();
   }
 
   function finishStudy() {
@@ -316,8 +334,8 @@
 
   function startStudyFlow() {
     showView("study");
-    updateProgress();
-    loadNextTrial();
+    round = nextRound1Trial() ? 1 : 2;
+    advance();
   }
 
   function tryStart(pidRaw) {
