@@ -2,7 +2,7 @@
   "use strict";
 
   var DATA_URL = "data/assignments_public.json";
-  var PLAYBACK_RATE = 0.85; // 전체 영상 재생속도를 살짝 느리게 (조절하려면 이 값만 변경)
+  var PLAYBACK_RATE = 0.6; // 전체 영상 재생속도를 살짝 느리게 (조절하려면 이 값만 변경)
 
   var views = ["error", "intro", "study", "complete"];
   function showView(name) {
@@ -137,16 +137,17 @@
   }
 
   function updateProgress() {
-    var gtTrials = trials.filter(function (t) { return t.has_gt; });
-    var q1Done = trials.filter(function (t) { return responses[t.token] && responses[t.token].q1_choice; }).length;
-    var q2Done = gtTrials.filter(function (t) { return responses[t.token] && responses[t.token].q2_choice; }).length;
-    var totalSteps = trials.length + gtTrials.length;
+    var q1Trials = trials.filter(function (t) { return t.question === "Q1"; });
+    var q2Trials = trials.filter(function (t) { return t.question === "Q2"; });
+    var q1Done = q1Trials.filter(function (t) { return responses[t.token] && responses[t.token].q1_choice; }).length;
+    var q2Done = q2Trials.filter(function (t) { return responses[t.token] && responses[t.token].q2_choice; }).length;
+    var totalSteps = trials.length; // 각 trial은 Q1 또는 Q2 딱 하나만 답한다
     var doneSteps = q1Done + q2Done;
     var pct = totalSteps ? Math.round((doneSteps / totalSteps) * 100) : 0;
     els.progressFill.style.width = pct + "%";
     els.progressText.textContent = round === 1
-      ? "Q1 (" + q1Done + " / " + trials.length + ")"
-      : "Q2 (" + q2Done + " / " + gtTrials.length + ")";
+      ? "Q1 (" + q1Done + " / " + q1Trials.length + ")"
+      : "Q2 (" + q2Done + " / " + q2Trials.length + ")";
   }
 
   function setupRoundView() {
@@ -263,17 +264,18 @@
     var now = new Date().toISOString();
     var existing = responses[currentTrial.token] || {};
 
+    // 각 trial은 question(Q1 또는 Q2) 하나만 배정되어 있어 다시 나타나지 않는다.
+    // 배정 안 된 쪽은 "애초에 묻지 않음"을 뜻하는 na로 여기서 바로 확정한다.
     if (round === 1) {
       existing.q1_choice = document.querySelector('input[name="q1"]:checked').value;
       existing.q1_timestamp = now;
-      if (!currentTrial.has_gt) {
-        // GT가 없는 sequence는 2라운드(Q2)에 다시 나오지 않으므로 여기서 바로 확정한다.
-        existing.q2_choice = "na";
-        existing.q2_timestamp = now;
-      }
+      existing.q2_choice = "na";
+      existing.q2_timestamp = now;
     } else {
       existing.q2_choice = document.querySelector('input[name="q2"]:checked').value;
       existing.q2_timestamp = now;
+      existing.q1_choice = "na";
+      existing.q1_timestamp = now;
     }
 
     responses[currentTrial.token] = existing;
@@ -294,12 +296,13 @@
   });
 
   // ---------- flow control ----------
-  // 1부: 12개 trial 전체를 Q1(레퍼런스 비공개)로 먼저 순회한다.
-  // 2부: GT가 있는 trial만 다시 순회하며 Q2(레퍼런스 공개)를 묻는다.
-  // Q1 응답은 1부에서 이미 확정되어 2부 화면에는 아예 나타나지 않는다(수정 불가).
+  // trial마다 question("Q1" 또는 "Q2") 하나만 배정되어 있어, 같은 영상 쌍을
+  // 두 번 보여주지 않는다. 1부: question="Q1"인 trial들을 먼저 순회한다
+  // (레퍼런스 비공개). 2부: question="Q2"인 trial들을 순회한다(레퍼런스 공개).
 
   function nextRound1Trial() {
     return trials.find(function (t) {
+      if (t.question !== "Q1") return false;
       var r = responses[t.token];
       return !r || !r.q1_choice;
     });
@@ -307,7 +310,7 @@
 
   function nextRound2Trial() {
     return trials.find(function (t) {
-      if (!t.has_gt) return false;
+      if (t.question !== "Q2") return false;
       var r = responses[t.token];
       return !r || !r.q2_choice;
     });
