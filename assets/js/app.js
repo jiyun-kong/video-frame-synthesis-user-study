@@ -2,7 +2,23 @@
   "use strict";
 
   var DATA_URL = "data/assignments_public.json";
-  var PLAYBACK_RATE = 0.6; // 전체 영상 재생속도를 살짝 느리게 (조절하려면 이 값만 변경)
+
+  // 영상은 전부 10fps로 인코딩되어 있다 (config/study_config.json의 video.fps).
+  // dataset마다 실제 촬영 fps가 크게 달라서(BS-ERGB 28fps, HS-ERGB ~156fps,
+  // GoPro 240fps) 화면 배속을 dataset별로 다르게 줘야 "실제 움직임 대비
+  // 몇 배 느리게 보이는가"가 세 dataset 모두 동일해진다.
+  //   playbackRate = 촬영fps / (인코딩fps(10) * SLOWDOWN_FACTOR)
+  // SLOWDOWN_FACTOR(=20)만 바꾸면 세 dataset이 함께 더/덜 느려진다.
+  var ENCODED_FPS = 10;
+  var SLOWDOWN_FACTOR = 20; // 실제 움직임 대비 20배 느리게 재생 (숫자를 조절하려면 이 값만)
+  var SOURCE_FPS = { BS_ERGB: 28, HS_ERGB: 156, GoPro: 240 };
+  var DEFAULT_PLAYBACK_RATE = 0.85;
+
+  function playbackRateFor(dataset) {
+    var sourceFps = SOURCE_FPS[dataset];
+    if (!sourceFps) return DEFAULT_PLAYBACK_RATE;
+    return sourceFps / (ENCODED_FPS * SLOWDOWN_FACTOR);
+  }
 
   var views = ["error", "intro", "study", "complete"];
   function showView(name) {
@@ -108,7 +124,8 @@
   }
 
   function applyPlaybackRate() {
-    allVideos.forEach(function (v) { v.playbackRate = PLAYBACK_RATE; });
+    var rate = currentTrial ? playbackRateFor(currentTrial.dataset) : DEFAULT_PLAYBACK_RATE;
+    allVideos.forEach(function (v) { v.playbackRate = rate; });
   }
 
   function setLoadingState(isLoading) {
