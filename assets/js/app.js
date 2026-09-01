@@ -14,7 +14,12 @@
   var SOURCE_FPS = { BS_ERGB: 28, HS_ERGB: 156, GoPro: 240 };
   var DEFAULT_PLAYBACK_RATE = 0.85;
 
+  // BS-ERGB는 프레임 수가 적어(5장) 수식대로 하면 한 loop가 3초 넘게 걸려
+  // 너무 늘어져 보인다. 이 dataset만 직접 배속을 지정해서 override한다.
+  var PLAYBACK_RATE_OVERRIDE = { BS_ERGB: 0.35 };
+
   function playbackRateFor(dataset) {
+    if (dataset in PLAYBACK_RATE_OVERRIDE) return PLAYBACK_RATE_OVERRIDE[dataset];
     var sourceFps = SOURCE_FPS[dataset];
     if (!sourceFps) return DEFAULT_PLAYBACK_RATE;
     return sourceFps / (ENCODED_FPS * SLOWDOWN_FACTOR);
